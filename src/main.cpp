@@ -1,12 +1,16 @@
+// Includes
+
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <AsyncMqttClient.h>
 #include <WiFiManager.h>
 #include <Credentials.h>
+#include <DallasTemperature.h>
+#include <OneWire.h>
 
+//Defines
 
 const char* topic =   "Noe1337";
-
 String clientId = "WeMos_";
 char clientID_c_str[30] = "WeMos_";
 
@@ -20,6 +24,12 @@ Ticker wifiReconnectTimer;
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
+#define ONE_WIRE_BUS_TEMP D2
+OneWire oneWire(ONE_WIRE_BUS_TEMP);
+DallasTemperature temp_sensor(&oneWire);
+
+
+// Code
 
 void setup_wifi()
 {
@@ -91,8 +101,19 @@ void setup() {
   connectToMqtt();
 }
 
+float read_temp_heater(){
+float retval;
+temp_sensor.requestTemperatures();
+retval = temp_sensor.getTempCByIndex(0);
+return retval;
+}
+
+
 unsigned long int newTime, lastTime, period = 10000;
 void loop() {
-  mqttClient.publish(topic, 0, false, "test 2");
-  delay(100);
+  float temperature_heater = read_temp_heater();
+  String temperature_heater_str = String(temperature_heater) + " °C";
+  mqttClient.publish(topic, 0, false, temperature_heater_str.c_str());
+  delay(5000);
 }
+
