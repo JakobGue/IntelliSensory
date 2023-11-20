@@ -1,5 +1,5 @@
 // Includes
-
+#include <Arduino.h>
 #include <ESP8266WiFi.h>
 #include <Ticker.h>
 #include <AsyncMqttClient.h>
@@ -16,6 +16,8 @@ char clientID_c_str[30] = "WeMos_";
 
 const int output = LED_BUILTIN;
 char message[50];
+const int sampleWindow = 50;
+unsigned int sample;
 
 AsyncMqttClient mqttClient;
 Ticker mqttReconnectTimer;
@@ -24,6 +26,7 @@ Ticker wifiReconnectTimer;
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
+#define SENSOR_PIN A0
 #define ONE_WIRE_BUS_TEMP D2
 OneWire oneWire(ONE_WIRE_BUS_TEMP);
 DallasTemperature temp_sensor(&oneWire);
@@ -88,6 +91,7 @@ void composeClientID() {
 }
 
 void setup() {
+  pinMode(SENSOR_PIN,INPUT);
   Serial.begin(115200);
   composeClientID() ;
 
@@ -99,21 +103,84 @@ void setup() {
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
 
   connectToMqtt();
+  
 }
 
 float read_temp_heater(){
-float retval;
-temp_sensor.requestTemperatures();
-retval = temp_sensor.getTempCByIndex(0);
-return retval;
+  float retval;
+  temp_sensor.requestTemperatures();
+  retval = temp_sensor.getTempCByIndex(0);
+  return retval;
+}
+
+float read_loudness(){
+  float retval;
+  unsigned long startMillis= millis();                   // Start of sample window
+  float peakToPeak = 0;                                  // peak-to-peak level
+ 
+  unsigned int signalMax = 0;                            //minimum value
+  unsigned int signalMin = 1024;                         //maximum value
+ 
+                                                          // collect data for 50 mS
+  while (millis() - startMillis < sampleWindow)
+  {
+      sample = analogRead(SENSOR_PIN);                    //get reading from microphone
+      if (sample < 1024)                                  // toss out spurious readings
+      {
+         if (sample > signalMax)
+         {
+            signalMax = sample;                           // save just the max levels
+         }
+         else if (sample < signalMin)
+         {
+            signalMin = sample;                           // save just the min levels
+         }
+      }
+      //Serial.print("Lautstärke: ");
+      //Serial.println(sample)
+   }
+ 
+  peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
+  int db = map(peakToPeak,20,900,49.5,90);             //calibrate for deciBels
+  retval = db;
+  return retval;
 }
 
 
-unsigned long int newTime, lastTime, period = 10000;
+//unsigned long int newTime, lastTime, period = 10000;
 void loop() {
+  unsigned long startMillis= millis();                   // Start of sample window
+  float peakToPeak = 0;                                  // peak-to-peak level
+ 
+  unsigned int signalMax = 0;                            //minimum value
+  unsigned int signalMin = 1024;                         //maximum value
+ 
+                                                          // collect data for 50 mS
+  while (millis() - startMillis < sampleWindow)
+  {
+      sample = analogRead(SENSOR_PIN);                    //get reading from microphone
+      if (sample < 1024)                                  // toss out spurious readings
+      {
+         if (sample > signalMax)
+         {
+            signalMax = sample;                           // save just the max levels
+         }
+         else if (sample < signalMin)
+         {
+            signalMin = sample;                           // save just the min levels
+         }
+      }
+   }
+ 
+  peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
+  int db = map(peakToPeak,20,900,49.5,90); 
   float temperature_heater = read_temp_heater();
+  String loudness_str = String(db)+ " db";
   String temperature_heater_str = String(temperature_heater) + " °C";
   mqttClient.publish(topic, 0, false, temperature_heater_str.c_str());
+  mqttClient.publish(topic, 0, false, loudness_str.c_str());
+  Serial.println(loudness_str);
+  Serial.println(temperature_heater_str);
   delay(5000);
 }
 
