@@ -7,6 +7,8 @@
 #include <Credentials.h>
 #include <DallasTemperature.h>
 #include <OneWire.h>
+#include <Wire.h>
+#include <SensirionI2CScd4x.h>
 
 //Defines
 
@@ -14,10 +16,6 @@ const char* topic =   "Noe1337";
 String clientId = "WeMos_";
 char clientID_c_str[30] = "WeMos_";
 
-const int output = LED_BUILTIN;
-char message[50];
-const int sampleWindow = 50;
-unsigned int sample;
 
 AsyncMqttClient mqttClient;
 Ticker mqttReconnectTimer;
@@ -26,10 +24,16 @@ Ticker wifiReconnectTimer;
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
 
+const int output = LED_BUILTIN;
+char message[50];
+const int sampleWindow = 50;
+unsigned int sample;
+
 #define SENSOR_PIN A0
-#define ONE_WIRE_BUS_TEMP D2
+#define ONE_WIRE_BUS_TEMP D3
 OneWire oneWire(ONE_WIRE_BUS_TEMP);
 DallasTemperature temp_sensor(&oneWire);
+SensirionI2CScd4x scd4x;
 
 
 // Code
@@ -37,6 +41,7 @@ DallasTemperature temp_sensor(&oneWire);
 void setup_wifi()
 {
   delay(10);
+  Serial.println("Connecting to WiFi");
   WiFiManager wifiManager;
   // configure WiFiManager to include fields for Location, Room and Project IDs
   // WiFiManagerParameter custom_ids("server", "mqtt server", location_id, 40);
@@ -91,11 +96,14 @@ void composeClientID() {
 }
 
 void setup() {
-  pinMode(SENSOR_PIN,INPUT);
   Serial.begin(115200);
   composeClientID() ;
-
   setup_wifi();
+while (WiFi.status() != WL_CONNECTED){
+  delay(1000);
+  Serial.println("Connecting to Wifi...");
+}
+  //Serial.println("ERREICHT");
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
 
@@ -103,6 +111,32 @@ void setup() {
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
 
   connectToMqtt();
+  
+  pinMode(SENSOR_PIN,INPUT);
+  
+  Wire.begin();
+  
+  scd4x.begin(Wire);
+  // stop potentially previously started measurement
+  uint16_t error;
+  char errorMessage[256];
+    error = scd4x.stopPeriodicMeasurement();
+    if (error) {
+        Serial.print("Error trying to execute stopPeriodicMeasurement(): ");
+        errorToString(error, errorMessage, 256);
+        Serial.println(errorMessage);
+    }
+
+    // Start Measurement
+    error = scd4x.startPeriodicMeasurement();
+    if (error) {
+        Serial.print("Error trying to execute startPeriodicMeasurement(): ");
+        errorToString(error, errorMessage, 256);
+        Serial.println(errorMessage);
+    }
+
+    Serial.println("Waiting for first measurement... (5 sec)");
+
   
 }
 
@@ -147,8 +181,11 @@ float read_loudness(){
 }
 
 
+
 //unsigned long int newTime, lastTime, period = 10000;
 void loop() {
+  uint16 co2;
+  float temperature_room, humidity;
   unsigned long startMillis= millis();                   // Start of sample window
   float peakToPeak = 0;                                  // peak-to-peak level
  
@@ -159,6 +196,7 @@ void loop() {
   while (millis() - startMillis < sampleWindow)
   {
       sample = analogRead(SENSOR_PIN);                    //get reading from microphone
+      //Serial.println(sample);
       if (sample < 1024)                                  // toss out spurious readings
       {
          if (sample > signalMax)
@@ -175,12 +213,43 @@ void loop() {
   peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
   int db = map(peakToPeak,20,900,49.5,90); 
   float temperature_heater = read_temp_heater();
+  sample = analogRead(SENSOR_PIN);
+  scd4x.readMeasurement(co2,temperature_room , humidity);
+
   String loudness_str = String(db)+ " db";
   String temperature_heater_str = String(temperature_heater) + " °C";
+  String sample_str = String(sample);
+  String co2_str = String(co2) + " ppm";
+  String temperature_room_str = String(temperature_room) + " °C";
+  String humidity_str = String(humidity) + " %";
+
   mqttClient.publish(topic, 0, false, temperature_heater_str.c_str());
   mqttClient.publish(topic, 0, false, loudness_str.c_str());
+  mqttClient.publish(topic, 0, false,sample_str.c_str());
+  //mqttClient.publish(topic, 0, false,sample_str.c_str());
+  mqttClient.publish(topic, 0, false,co2_str.c_str());
+  mqttClient.publish(topic, 0, false,temperature_room_str.c_str());
+  mqttClient.publish(topic, 0, false,humidity_str.c_str());
+  
+  Serial.print("Kohlenstoffdioxid: ");
+  Serial.print("\t");
+  Serial.println(co2_str);
+  Serial.print("Raumtemperatur: ");
+  Serial.print("\t");
+  Serial.println(temperature_room_str);
+  Serial.print("Luftfeuchte: ");
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.println(humidity_str);
+  Serial.print("Lautstärke: ");
+  Serial.print("\t");
+  Serial.print("\t");
   Serial.println(loudness_str);
+  Serial.print("Temperatur an Heizung: ");
+  Serial.print("\t");
   Serial.println(temperature_heater_str);
+  Serial.println("********************************");
+
   delay(5000);
 }
 
