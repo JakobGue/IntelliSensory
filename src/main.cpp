@@ -30,6 +30,7 @@ const int sampleWindow = 50;
 unsigned int sample;
 
 #define SENSOR_PIN A0
+#define DEBUG_PIN D4
 #define ONE_WIRE_BUS_TEMP D3
 OneWire oneWire(ONE_WIRE_BUS_TEMP);
 DallasTemperature temp_sensor(&oneWire);
@@ -97,22 +98,28 @@ void composeClientID() {
 
 void setup() {
   Serial.begin(115200);
+  pinMode(DEBUG_PIN, INPUT);
   composeClientID() ;
   setup_wifi();
-while (WiFi.status() != WL_CONNECTED){
-  delay(1000);
-  Serial.println("Connecting to Wifi...");
-}
+  while (WiFi.status() != WL_CONNECTED){
+    delay(1000);
+    Serial.println("Connecting to Wifi...");
+  }
   //Serial.println("ERREICHT");
   mqttClient.onConnect(onMqttConnect);
   mqttClient.onDisconnect(onMqttDisconnect);
 
   mqttClient.onMessage(onMqttMessage);
-  mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  if (digitalRead(DEBUG_PIN) == HIGH){
+    mqttClient.setServer(DEBUG_HOST, DEBUG_PORT);
+  }
+  else{
+    mqttClient.setServer(MQTT_HOST, MQTT_PORT);
+  }
 
   connectToMqtt();
   
-  pinMode(SENSOR_PIN,INPUT);
+  pinMode(SENSOR_PIN, INPUT);
   
   Wire.begin();
   
