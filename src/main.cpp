@@ -9,8 +9,12 @@
 #include <OneWire.h>
 #include <Wire.h>
 #include <SensirionI2CScd4x.h>
+#include <NTPClient.h>
+#include <WiFiUdp.h>
+#include <DateTime.h>
 
 //Defines
+
 
 const char* topic =   "Noe1337";
 String clientId = "WeMos_";
@@ -23,6 +27,8 @@ Ticker wifiReconnectTimer;
 
 WiFiEventHandler wifiConnectHandler;
 WiFiEventHandler wifiDisconnectHandler;
+
+
 
 const int output = LED_BUILTIN;
 char message[50];
@@ -37,6 +43,12 @@ SensirionI2CScd4x scd4x;
 
 
 // Code
+void setupDateTime(){
+  DateTime.setServer("de.pool.ntp.org");
+  DateTime.setTimeZone("CET-1");
+  DateTime.begin();
+}
+
 
 void setup_wifi()
 {
@@ -62,6 +74,9 @@ void onMqttConnect(bool sessionPresent) {
   Serial.println("Connected to MQTT.");
   Serial.print("Session present: ");
   Serial.println(sessionPresent);
+  if (sessionPresent == 0){
+    Serial.println("Keine Internetverbindung");
+  }
 }
 
 void onMqttDisconnect(AsyncMqttClientDisconnectReason reason) {
@@ -111,6 +126,8 @@ while (WiFi.status() != WL_CONNECTED){
   mqttClient.setServer(MQTT_HOST, MQTT_PORT);
 
   connectToMqtt();
+
+  setupDateTime();
   
   pinMode(SENSOR_PIN,INPUT);
   
@@ -136,8 +153,9 @@ while (WiFi.status() != WL_CONNECTED){
     }
 
     Serial.println("Waiting for first measurement... (5 sec)");
-
   
+  
+
 }
 
 float read_temp_heater(){
@@ -191,7 +209,7 @@ void loop() {
  
   unsigned int signalMax = 0;                            //minimum value
   unsigned int signalMin = 1024;                         //maximum value
- 
+
                                                           // collect data for 50 mS
   while (millis() - startMillis < sampleWindow)
   {
@@ -222,7 +240,12 @@ void loop() {
   String co2_str = String(co2) + " ppm";
   String temperature_room_str = String(temperature_room) + " °C";
   String humidity_str = String(humidity) + " %";
+  
+  //String DateTime;//ICH VERSTEH ES NICHT
 
+  
+  
+  mqttClient.publish(topic, 0, false, DateTime.toISOString().c_str());
   mqttClient.publish(topic, 0, false, temperature_heater_str.c_str());
   mqttClient.publish(topic, 0, false, loudness_str.c_str());
   mqttClient.publish(topic, 0, false,sample_str.c_str());
@@ -231,6 +254,7 @@ void loop() {
   mqttClient.publish(topic, 0, false,temperature_room_str.c_str());
   mqttClient.publish(topic, 0, false,humidity_str.c_str());
   
+
   Serial.print("Kohlenstoffdioxid: ");
   Serial.print("\t");
   Serial.println(co2_str);
@@ -248,7 +272,15 @@ void loop() {
   Serial.print("Temperatur an Heizung: ");
   Serial.print("\t");
   Serial.println(temperature_heater_str);
-  Serial.println("********************************");
+  Serial.print("Datum:");
+  Serial.print("\t");
+  Serial.print("\t");
+  Serial.print("\t");
+  //Serial.println(formattedDate);
+  //Serial.print("Datum:");
+  Serial.println(DateTime.toISOString());
+  
+  Serial.println("************************************************");
 
   delay(5000);
 }
