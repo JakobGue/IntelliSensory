@@ -12,13 +12,20 @@
 #include <NTPClient.h>
 #include <WiFiUdp.h>
 #include <DateTime.h>
+#include <iostream>
+#include <vector>
+#include <tuple>
+#include "helperfunction.h"
+
+
 
 //Defines
-
 
 const char* topic =   "Noe1337";
 String clientId = "WeMos_";
 char clientID_c_str[30] = "WeMos_";
+
+
 
 
 AsyncMqttClient mqttClient;
@@ -43,10 +50,12 @@ DallasTemperature temp_sensor(&oneWire);
 SensirionI2CScd4x scd4x;
 
 
+
+
 // Code
 void setupDateTime(){
   DateTime.setServer("de.pool.ntp.org");
-  DateTime.setTimeZone("CET-1");
+  DateTime.setTimeZone("UTC");
   DateTime.begin();
 }
 
@@ -67,6 +76,12 @@ void setup_wifi()
 void connectToMqtt() {
   Serial.println("Connecting to MQTT...");
   mqttClient.setClientId(clientID_c_str);
+  if (digitalRead(DEBUG_PIN) == HIGH){
+    mqttClient.setCredentials(DEBUG_USER, DEBUG_PASSWORD);
+  }
+  else{
+    mqttClient.setCredentials(MQTT_USER, MQTT_PASSWORD);
+  }
   mqttClient.connect();
 }
 
@@ -139,11 +154,11 @@ void setup() {
   pinMode(SENSOR_PIN, INPUT);
   
   Wire.begin();
-  
-  scd4x.begin(Wire);
-  // stop potentially previously started measurement
-  uint16_t error;
-  char errorMessage[256];
+  if (MODE == "DESK") {
+    scd4x.begin(Wire);
+
+    uint16_t error;
+    char errorMessage[256];
     error = scd4x.stopPeriodicMeasurement();
     if (error) {
         Serial.print("Error trying to execute stopPeriodicMeasurement(): ");
@@ -160,9 +175,7 @@ void setup() {
     }
 
     Serial.println("Waiting for first measurement... (5 sec)");
-  
-  
-
+  }
 }
 
 float read_temp_heater(){
@@ -209,82 +222,92 @@ float read_loudness(){
 
 //unsigned long int newTime, lastTime, period = 10000;
 void loop() {
-  uint16 co2;
-  float temperature_room, humidity;
-  unsigned long startMillis= millis();                   // Start of sample window
-  float peakToPeak = 0;                                  // peak-to-peak level
+  String result = "";
+  if (MODE == "DESK") {
+    uint16 co2;
+    float temperature_room, humidity;
+    unsigned long startMillis= millis();                   // Start of sample window
+    float peakToPeak = 0;                                  // peak-to-peak level
+  
+    unsigned int signalMax = 0;                            //minimum value
+    unsigned int signalMin = 1024;                         //maximum value
+
+                                                            // collect data for 50 mS
+    while (millis() - startMillis < sampleWindow)
+    {
+        sample = analogRead(SENSOR_PIN);                    //get reading from microphone
+        //Serial.println(sample);
+        if (sample < 1024)                                  // toss out spurious readings
+        {
+          if (sample > signalMax)
+          {
+              signalMax = sample;                           // save just the max levels
+          }
+          else if (sample < signalMin)
+          {
+              signalMin = sample;                           // save just the min levels
+          }
+        }
+    }
  
-  unsigned int signalMax = 0;                            //minimum value
-  unsigned int signalMin = 1024;                         //maximum value
+    peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
+    int db = map(peakToPeak,20,900,49.5,90); 
+    
+    sample = analogRead(SENSOR_PIN);
+    scd4x.readMeasurement(co2,temperature_room , humidity);
 
-                                                          // collect data for 50 mS
-  while (millis() - startMillis < sampleWindow)
-  {
-      sample = analogRead(SENSOR_PIN);                    //get reading from microphone
-      //Serial.println(sample);
-      if (sample < 1024)                                  // toss out spurious readings
-      {
-         if (sample > signalMax)
-         {
-            signalMax = sample;                           // save just the max levels
-         }
-         else if (sample < signalMin)
-         {
-            signalMin = sample;                           // save just the min levels
-         }
-      }
-   }
- 
-  peakToPeak = signalMax - signalMin;                    // max - min = peak-peak amplitude
-  int db = map(peakToPeak,20,900,49.5,90); 
-  float temperature_heater = read_temp_heater();
-  sample = analogRead(SENSOR_PIN);
-  scd4x.readMeasurement(co2,temperature_room , humidity);
+    String loudness_str = String(db)+ " db";
+    
+    String sample_str = String(sample);
+    String co2_str = String(co2) + " ppm";
+    String temperature_room_str = String(temperature_room) + " °C";
+    String humidity_str = String(humidity) + " %";
 
-  String loudness_str = String(db)+ " db";
-  String temperature_heater_str = String(temperature_heater) + " °C";
-  String sample_str = String(sample);
-  String co2_str = String(co2) + " ppm";
-  String temperature_room_str = String(temperature_room) + " °C";
-  String humidity_str = String(humidity) + " %";
+    String formattedDate = DateTime.toISOString();
   
-  //String DateTime;//ICH VERSTEH ES NICHT
+    const SensorData sensorData[] = {
+          {1, db, formattedDate},
+          {2, temperature_room, formattedDate},
+          {3, co2, formattedDate},
+          {4, humidity, formattedDate}
+      };
+    result = createJson(false, sensorData, sizeof(sensorData) / sizeof(sensorData[0]));
 
+    Serial.print("Kohlenstoffdioxid: ");
+    Serial.print("\t");
+    Serial.println(co2_str);
+    Serial.print("Raumtemperatur: ");
+    Serial.print("\t");
+    Serial.println(temperature_room_str);
+    Serial.print("Luftfeuchte: ");
+    Serial.print("\t");
+    Serial.print("\t");
+    Serial.println(humidity_str);
+    Serial.print("Lautstärke: ");
+    Serial.print("\t");
+    Serial.print("\t");
+    Serial.println(sample_str);
+    Serial.print("Temperatur an Heizung: ");
+    Serial.print("\t");
+  }else {
+    float temperature_heater = read_temp_heater();
+    String temperature_heater_str = String(temperature_heater) + " °C";
+    String formattedDate = DateTime.toISOString();
   
-  
-  mqttClient.publish(topic, 0, false, DateTime.toISOString().c_str());
-  mqttClient.publish(topic, 0, false, temperature_heater_str.c_str());
-  mqttClient.publish(topic, 0, false, loudness_str.c_str());
-  mqttClient.publish(topic, 0, false,sample_str.c_str());
-  //mqttClient.publish(topic, 0, false,sample_str.c_str());
-  mqttClient.publish(topic, 0, false,co2_str.c_str());
-  mqttClient.publish(topic, 0, false,temperature_room_str.c_str());
-  mqttClient.publish(topic, 0, false,humidity_str.c_str());
-  
+    const SensorData sensorData[] = {
+          {1, temperature_heater, formattedDate}
+      };
 
-  Serial.print("Kohlenstoffdioxid: ");
-  Serial.print("\t");
-  Serial.println(co2_str);
-  Serial.print("Raumtemperatur: ");
-  Serial.print("\t");
-  Serial.println(temperature_room_str);
-  Serial.print("Luftfeuchte: ");
-  Serial.print("\t");
-  Serial.print("\t");
-  Serial.println(humidity_str);
-  Serial.print("Lautstärke: ");
-  Serial.print("\t");
-  Serial.print("\t");
-  Serial.println(loudness_str);
-  Serial.print("Temperatur an Heizung: ");
-  Serial.print("\t");
-  Serial.println(temperature_heater_str);
+    result = createJson(false, sensorData, sizeof(sensorData) / sizeof(sensorData[0]));
+    Serial.println(temperature_heater_str);
+  }
+
+  mqttClient.publish(topic, 0, false, result.c_str());
+
   Serial.print("Datum:");
   Serial.print("\t");
   Serial.print("\t");
   Serial.print("\t");
-  //Serial.println(formattedDate);
-  //Serial.print("Datum:");
   Serial.println(DateTime.toISOString());
   
   Serial.println("************************************************");
