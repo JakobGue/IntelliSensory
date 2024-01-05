@@ -11,10 +11,17 @@
 #include <WiFiUdp.h>
 #include "helperfunction.h"
 #include "WiFiManager.h"
+#include <WiFiManager.h>          // https://github.com/tzapu/WiFiManager
+#include <ArduinoJson.h> 
 
 char message[50];
 const int sampleWindow = 50;
 unsigned int sample;
+
+char output_room[20] ="";
+char output_location[20] = "";
+char output_mode[7] = "";
+bool shouldSaveConfig = false;
 
 #define SENSOR_PIN A0
 #define DEBUG_PIN D4
@@ -39,6 +46,10 @@ float sound_cycle[120];
 
 void callback(char* topic, byte* payload, unsigned int length) {
   // handle message arrived
+}
+void saveConfigCallback () {
+  Serial.println("Should save config");
+  shouldSaveConfig = true;
 }
 WiFiClientSecure espClient;
 PubSubClient client(server, 15, callback, espClient);
@@ -71,11 +82,80 @@ void setup()
   delay(10);
   Serial.println('\n');
   pinMode(DEBUG_PIN, INPUT);
+  if (SPIFFS.begin()) {
+    Serial.println("mounted file system");
+    if (SPIFFS.exists("/config.json")) {
+      //file exists, reading and loading
+      Serial.println("reading config file");
+      File configFile = SPIFFS.open("/config.json", "r");
+      if (configFile) {
+        Serial.println("opened config file");
+        size_t size = configFile.size();
+        // Allocate a buffer to store contents of the file.
+        std::unique_ptr<char[]> buf(new char[size]);
+
+        configFile.readBytes(buf.get(), size);
+        StaticJsonDocument<256> json;
+        DeserializationError jsonError = deserializeJson(json, buf.get());
+        serializeJson(json, Serial);
+
+        if (!jsonError)
+        {
+          Serial.println("\nparsed json");
+          strcpy(output_room, json["output_room"]);
+          strcpy(output_location, json["output_location"]);
+          strcpy(output_mode, json["output_mode"]);
+        } else {
+          Serial.println("failed to load json config");
+        }
+      }
+    }
+  } else {
+    Serial.println("failed to mount FS");
+  }
   
-  WiFi.begin(ssid, password);  
   espClient.setInsecure();           // Connect to the network
   Serial.print("Connecting to ");
   Serial.print(ssid); Serial.println(" ...");
+
+  WiFiManagerParameter custom_output_loc("loc", "Location", output_location, 20);
+  WiFiManagerParameter custom_output_room("room", "Room", output_room, 20);
+  WiFiManagerParameter custom_output_mode("mode", "Mode", output_mode, 7);
+
+  WiFiManager wifiManager;
+
+  wifiManager.setSaveConfigCallback(saveConfigCallback);
+  
+  wifiManager.addParameter(&custom_output_room);
+  wifiManager.addParameter(&custom_output_loc);
+  wifiManager.addParameter(&custom_output_mode);
+  
+  wifiManager.autoConnect("Intellisensory_Setup");
+
+  Serial.println("Connected.");
+  
+  strcpy(output_room, custom_output_room.getValue());
+  strcpy(output_location, custom_output_loc.getValue());
+  strcpy(output_mode, custom_output_mode.getValue());
+
+  if (shouldSaveConfig) {
+    Serial.println("saving config");
+    StaticJsonDocument<256> json;
+    json["output_room"] = output_room;
+    json["output_location"] = output_location;
+    json["output_mode"] = output_mode;
+
+
+    File configFile = SPIFFS.open("/config.json", "w");
+    if (!configFile) {
+      Serial.println("failed to open config file for writing");
+    }
+
+    serializeJsonPretty(json, Serial);
+    serializeJson(json, configFile);
+    configFile.close();
+    //end save
+  }
 
   int i = 0;
   while (WiFi.status() != WL_CONNECTED) { // Wait for the Wi-Fi to connect
