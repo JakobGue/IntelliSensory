@@ -356,7 +356,13 @@ void loop()
   }
 
   // delaying whole 60s at once results in connection loss, therefore delay 500ms 120 times
-  delay(450);
-  sound_cycle[i] = read_loudness();
+  
+  if (mode == "DESK") 
+  {
+    delay(450);
+    sound_cycle[i] = read_loudness();
+  } else {
+    delay(500);
+  }
   i++;
 }
