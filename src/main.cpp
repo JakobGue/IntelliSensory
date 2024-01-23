@@ -24,7 +24,7 @@ char output_mode[7] = "";
 bool shouldSaveConfig = false;
 
 #define SENSOR_PIN A0
-#define DEBUG_PIN D4
+#define DEBUG_PIN D5
 #define ONE_WIRE_BUS_TEMP D3
 OneWire oneWire(ONE_WIRE_BUS_TEMP);
 DallasTemperature temp_sensor(&oneWire);
@@ -33,10 +33,14 @@ SensirionI2CScd4x scd4x;
 String location;
 String room;
 String mode;
+bool debug = false;
 
 String clientId;
 int i = 0;
 char *server = MQTT_HOST;
+char *debug_server = DEBUG_HOST;
+WiFiClientSecure espClient;
+PubSubClient client(espClient);
 
 const float sound_threshold = 1.2;
 float sound_cycle[120];
@@ -50,8 +54,7 @@ void saveConfigCallback()
   Serial.println("Should save config");
   shouldSaveConfig = true;
 }
-WiFiClientSecure espClient;
-PubSubClient client(server, 15, callback, espClient);
+
 
 void setupDateTime()
 {
@@ -61,56 +64,35 @@ void setupDateTime()
   Serial.println(DateTime.toISOString());
 }
 
-void reconnect()
-{
-  while (!client.connected())
-  {
-    Serial.print("Attempting MQTT connection...");
-    clientId = "IntelliSensory_" + location + "_" + room + "_" + mode;
-    clientId.toLowerCase();
-    String username;
-    String password;
-    if (DEBUG_PIN == HIGH)
-    {
-      username = DEBUG_USER;
-      password = DEBUG_PASSWORD;
-    }
-    else
-    {
-      username = MQTT_USER;
-      password = MQTT_PASSWORD;
-    }
-    if (client.connect(clientId.c_str(), username.c_str(), password.c_str()))
-    {
-      Serial.println(" Mqtt connected");
-    }
-    else
-    {
-      Serial.println(" try again in 5 seconds");
-      delay(5000);
-    }
-  }
-}
+
 
 void setup()
 {
-  if (DEBUG_PIN == HIGH)
+  Serial.begin(115200);
+  delay(50);
+  Serial.println("Starting Setup");
+  pinMode(DEBUG_PIN, INPUT_PULLUP);
+  if (digitalRead(DEBUG_PIN)==LOW)
   {
     Serial.println("Debug mode");
-    client.setServer(DEBUG_HOST, DEBUG_PORT);
+    debug = true;
+    SPIFFS.format();
+    client.setServer(debug_server, DEBUG_PORT);
+  } else {
+    client.setServer(server, MQTT_PORT);
   }
-  Serial.begin(115200);
-  delay(10);
+  client.setCallback(callback);
+  
+  //Serial.println(client.state());
+  Serial.println("Starting up");
+  Serial.println(digitalRead(DEBUG_PIN));
   Serial.println('\n');
-  pinMode(DEBUG_PIN, INPUT);
+  
+  
 
   if (SPIFFS.begin())
   {
-    if (DEBUG_PIN == HIGH)
-    {
-      SPIFFS.format();
-    }
-    SPIFFS.format();
+    Serial.println(digitalRead(DEBUG_PIN));
     Serial.println("mounted file system");
     if (SPIFFS.exists("/config.json"))
     {
@@ -170,8 +152,12 @@ void setup()
   wifiManager.addParameter(&custom_output_room);
   wifiManager.addParameter(&custom_output_loc);
   wifiManager.addParameter(&custom_output_mode);
-
-  wifiManager.autoConnect("Intellisensory_Setup");
+  if(debug) {
+    wifiManager.startConfigPortal("Intellisensory_Setup");
+  } else {
+    wifiManager.autoConnect("Intellisensory_Setup");
+  }
+  
 
   Serial.println("Connected.");
 
@@ -257,6 +243,37 @@ void setup()
   }
 }
 
+void reconnect()
+{
+  while (!client.connected())
+  {
+    Serial.print("Attempting MQTT connection...");
+    clientId = "IntelliSensory_" + location + "_" + room + "_" + mode;
+    clientId.toLowerCase();
+    String username;
+    String password;
+    if (digitalRead(DEBUG_PIN) == LOW)
+    {
+      username = DEBUG_USER;
+      password = DEBUG_PASSWORD;
+    }
+    else
+    {
+      username = MQTT_USER;
+      password = MQTT_PASSWORD;
+    }
+    if (client.connect(clientId.c_str(), username.c_str(), password.c_str()))
+    {
+      Serial.println(" Mqtt connected");
+    }
+    else
+    {
+      Serial.println(" try again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
+
 float read_temp_heater()
 {
   float retval;
@@ -328,7 +345,7 @@ void loop()
           {
               {5, sound, formattedDate},
               {3, temperature_room, formattedDate},
-              {1, co2, formattedDate},
+              {2, co2, formattedDate},
               {4, humidity, formattedDate}};
       result = createJson(false, sensorData, sizeof(sensorData) / sizeof(sensorData[0]));
       Serial.println(result);
