@@ -163,7 +163,7 @@ void setup()
   Serial.println("Connected.");
  if (custom_output_room.getValue()[0] == '\0' or custom_output_loc.getValue()[0] == '\0' or custom_output_mode.getValue()[0] == '\0')
   {
-    Serial.println("Configuration incomplete. Restarting captive Portal.")
+    Serial.println("Configuration incomplete. Restarting captive Portal.");
     wifiManager.startConfigPortal("Intellisensory_Setup");
   }
   strcpy(output_room, custom_output_room.getValue());
