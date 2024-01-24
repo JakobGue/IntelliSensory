@@ -153,7 +153,7 @@ void setup()
   wifiManager.addParameter(&custom_output_loc);
   wifiManager.addParameter(&custom_output_mode);
   if(debug) {
-    Serial.println("Open Debug Portal...")
+    Serial.println("Open Debug Portal...");
     wifiManager.startConfigPortal("Intellisensory_Setup_Debug");
   } else {
     wifiManager.autoConnect("Intellisensory_Setup");
