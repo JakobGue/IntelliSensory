@@ -153,14 +153,19 @@ void setup()
   wifiManager.addParameter(&custom_output_loc);
   wifiManager.addParameter(&custom_output_mode);
   if(debug) {
-    wifiManager.startConfigPortal("Intellisensory_Setup");
+    Serial.println("Open Debug Portal...")
+    wifiManager.startConfigPortal("Intellisensory_Setup_Debug");
   } else {
     wifiManager.autoConnect("Intellisensory_Setup");
   }
   
 
   Serial.println("Connected.");
-
+ if (custom_output_room.getValue()[0] == '\0' or custom_output_loc.getValue()[0] == '\0' or custom_output_mode.getValue()[0] == '\0')
+  {
+    Serial.println("Configuration incomplete. Restarting captive Portal.")
+    wifiManager.startConfigPortal("Intellisensory_Setup");
+  }
   strcpy(output_room, custom_output_room.getValue());
   strcpy(output_location, custom_output_loc.getValue());
   strcpy(output_mode, custom_output_mode.getValue());
@@ -174,6 +179,7 @@ void setup()
   mode.trim();
   mode.toUpperCase();
 
+ 
   if (shouldSaveConfig)
   {
     Serial.println("saving config");
@@ -181,6 +187,7 @@ void setup()
     json["output_room"] = output_room;
     json["output_location"] = output_location;
     json["output_mode"] = output_mode;
+
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile)
@@ -355,6 +362,7 @@ void loop()
     {
       float temperature_heater = read_temp_heater();
       String formattedDate = DateTime.toISOString();
+
 
       const SensorData sensorData[] =
           {
